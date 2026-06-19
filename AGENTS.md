@@ -2,11 +2,22 @@
 
 다음 세대 에이전트가 학습·평가 코드를 수정하거나 실행할 때 참고할 데이터셋 관련 정보.
 
+Use `uv run python` to execute Python code.
+
+## Dataset location
+
+Lab datasets are stored at one of:
+
+- `/mnt/data/lab_datasets`
+- `/data/jayn2u/lab_datasets`
+
+These paths refer to the same storage. Use whichever exists on the current machine.
+
 ## 데이터 루트
 
 | 항목 | 값 |
 |------|-----|
-| 기본 경로 | `/data/jayn2u/lab_datasets` |
+| 기본 경로 | `/data/jayn2u/lab_datasets` (또는 `/mnt/data/lab_datasets`) |
 | 환경변수 | `RDE_DATA_ROOT` (설정 시 `--root_dir` 기본값을 덮어씀) |
 | CLI 인자 | `--root_dir` (`2024-CVPR-RDE/utils/options.py`) |
 | `run_rde.sh` | `root_dir="${RDE_DATA_ROOT:-/data/jayn2u/lab_datasets}"` |
