@@ -1,4 +1,5 @@
 import argparse
+import os
 
 
 def get_args():
@@ -68,7 +69,7 @@ def get_args():
     parser.add_argument("--dataset_name", default="CUHK-PEDES", help="[CUHK-PEDES, ICFG-PEDES, RSTPReid]")
     parser.add_argument("--sampler", default="random", help="choose sampler from [idtentity, random]")
     parser.add_argument("--num_instance", type=int, default=4)
-    parser.add_argument("--root_dir", default="/home/qinyang/projects/data")
+    parser.add_argument("--root_dir", default=os.environ.get("RDE_DATA_ROOT", "/data/jayn2u/lab_datasets"))
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--test_batch_size", type=int, default=512)
     parser.add_argument("--num_workers", type=int, default=8)

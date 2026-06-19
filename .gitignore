@@ -1,0 +1,26 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# OS/editor artifacts
+.DS_Store
+.vscode/
+.idea/
+
+# Local environments and secrets
+.venv/
+venv/
+.env
+.env.*
+
+# RDE training/evaluation artifacts
+2024-CVPR-RDE/run_logs/
+2024-CVPR-RDE/logs/
+2024-CVPR-RDE/**/*.pth
+2024-CVPR-RDE/**/*.pt
+2024-CVPR-RDE/**/events.out.tfevents.*

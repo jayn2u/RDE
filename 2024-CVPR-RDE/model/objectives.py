@@ -35,7 +35,7 @@ def compute_TRL_per(scores, pid, margin = 0.2, tau=0.02):
     batch_size = scores.shape[0]
     pid = pid.reshape((batch_size, 1)) # make sure pid size is [batch_size, 1]
     pid_dist = pid - pid.t()
-    labels = (pid_dist == 0).float().cuda()
+    labels = (pid_dist == 0).float().to(scores.device)
     mask = 1 - labels
 
     alpha_1 =((scores/tau).exp()* labels / ((scores/tau).exp()* labels).sum(dim=1, keepdim=True)).detach()
@@ -68,7 +68,7 @@ def compute_TAL_per(scores, pid, tau, margin):
     batch_size = scores.shape[0]
     pid = pid.reshape((batch_size, 1)) # make sure pid size is [batch_size, 1]
     pid_dist = pid - pid.t()
-    labels = (pid_dist == 0).float().cuda()
+    labels = (pid_dist == 0).float().to(scores.device)
     mask = 1 - labels
 
     alpha_i2t =((scores/tau).exp()* labels / ((scores/tau).exp()* labels).sum(dim=1, keepdim=True)).detach()

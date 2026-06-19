@@ -97,6 +97,6 @@ if __name__ == '__main__':
             model = build_model(args,num_classes)
             checkpointer = Checkpointer(model)
             checkpointer.load(f=op.join(args.output_dir, asss[i]))
-            model = model.cuda()
+            model = model.to(device)
             do_inference(model, test_img_loader, test_txt_loader)
      

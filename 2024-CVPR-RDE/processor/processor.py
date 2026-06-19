@@ -8,9 +8,6 @@ from utils.comm import get_rank, synchronize
 from torch.utils.tensorboard import SummaryWriter
 from prettytable import PrettyTable
 import numpy as np
-from matplotlib import pyplot as plt
-from pylab import xticks,yticks,np
-from sklearn.metrics import confusion_matrix
 from sklearn.mixture import GaussianMixture
 
 

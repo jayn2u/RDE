@@ -1,5 +1,8 @@
 #!/bin/bash
-root_dir=/home/qinyang/projects/data
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+root_dir="${RDE_DATA_ROOT:-/data/jayn2u/lab_datasets}"
 tau=0.015 
 margin=0.1
 noisy_rate=0.0  #0.0 0.2 0.5 0.8
@@ -8,7 +11,7 @@ loss=TAL
 DATASET_NAME=CUHK-PEDES
 # CUHK-PEDES ICFG-PEDES RSTPReid
 
-noisy_file=./noiseindex/${DATASET_NAME}_${noisy_rate}.npy
+noisy_file="${SCRIPT_DIR}/noiseindex/${DATASET_NAME}_${noisy_rate}.npy"
 CUDA_VISIBLE_DEVICES=0 \
     python train.py \
     --noisy_rate $noisy_rate \
@@ -25,4 +28,3 @@ CUDA_VISIBLE_DEVICES=0 \
     --dataset_name $DATASET_NAME \
     --loss_names ${loss}+sr${select_ratio}_tau${tau}_margin${margin}_n${noisy_rate}  \
     --num_epoch 60 
- 
