@@ -13,6 +13,47 @@ Lab datasets are stored at one of:
 
 These paths refer to the same storage. Use whichever exists on the current machine.
 
+## Config injection and dataset naming
+
+Dataset selection must be explicit. Do not rely on silent code defaults in new lab evaluation code.
+
+### Training (`run_rde.sh`, `train.py`, `test.py`)
+
+- Set the dataset through `DATASET_NAME` in `run_rde.sh` before launching training (for example, `DATASET_NAME=ICFG-PEDES sh run_rde.sh`).
+- `run_rde.sh` passes `--dataset_name $DATASET_NAME` to `train.py`. Edit the `DATASET_NAME=` line or export it in the shell; do not assume an unstated dataset.
+- Legacy `train.py` / `test.py` still accept `--dataset_name` directly. Reserve that path only when migrating older runs or wrapping them in YAML-based launchers.
+
+### New lab evaluation scripts
+
+- Every evaluation entry point must receive its config path through an environment variable (for example, `SUGARCREPE_CONFIG` for `sugarcrepe-pedes.py`). If the variable is missing or empty, raise an error instead of falling back to a baked-in default.
+- Do not hardcode a dataset in new evaluation code. The YAML (or injected env) must set `dataset` explicitly.
+
+### Per-dataset config naming
+
+When adding YAML-based evaluation, use one file per task and dataset slug:
+
+```
+configs/{task}_{dataset_slug}.yaml
+```
+
+Examples already in this repo:
+
+- `configs/sugarcrepe_cuhk_pedes.yaml` (`dataset: cuhk-pedes`)
+- `configs/sugarcrepe_icfg_pedes.yaml` (`dataset: icfg-pedes`)
+- `configs/sugarcrepe_rstp_reid.yaml` (`dataset: rstpreid`)
+
+Shell wrappers should export the matching config path before calling Python.
+
+### Supported dataset names
+
+| `--dataset_name` / loader key | Directory under `{root_dir}` |
+|------------------------------|------------------------------|
+| `CUHK-PEDES` | `CUHK-PEDES` |
+| `ICFG-PEDES` | `ICFG-PEDES` |
+| `RSTPReid` | `RSTPReid` |
+
+YAML `dataset` slugs (`cuhk-pedes`, `icfg-pedes`, `rstpreid`) map to these names inside evaluation loaders.
+
 ## 데이터 루트
 
 | 항목 | 값 |

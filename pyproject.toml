@@ -21,6 +21,7 @@ dependencies = [
     "scikit-learn",
     "scipy",
     "pillow",
+    "hf>=1.20.1",
 ]
 
 [[tool.uv.index]]
