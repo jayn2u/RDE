@@ -24,3 +24,5 @@ venv/
 2024-CVPR-RDE/**/*.pth
 2024-CVPR-RDE/**/*.pt
 2024-CVPR-RDE/**/events.out.tfevents.*
+
+results/
