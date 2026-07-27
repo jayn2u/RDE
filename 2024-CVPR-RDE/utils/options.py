@@ -20,6 +20,14 @@ def get_args():
     parser.add_argument("--val_dataset", default="test") # use val set when evaluate, if test use test set
     parser.add_argument("--resume", default=False, action='store_true')
     parser.add_argument("--resume_ckpt_file", default="", help='resume from ...')
+    parser.add_argument("--wandb", action="store_true", help="enable Weights & Biases tracking")
+    parser.add_argument("--wandb_project", default="", help="override WANDB_PROJECT")
+    parser.add_argument("--wandb_entity", default="", help="override WANDB_ENTITY")
+    parser.add_argument("--wandb_run_name", default="", help="custom W&B run name")
+    parser.add_argument("--wandb_group", default="", help="custom W&B run group")
+    parser.add_argument("--wandb_notes", default="", help="W&B run notes")
+    parser.add_argument("--wandb_tags", nargs="*", default=[], help="W&B run tags")
+    parser.add_argument("--wandb_env_file", default="env/.env", help="W&B environment file relative to the repository root")
 
     ######################## model general settings ########################
     parser.add_argument("--pretrain_choice", default='ViT-B/16') # whether use pretrained model

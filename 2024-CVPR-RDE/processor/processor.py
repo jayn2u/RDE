@@ -1,10 +1,21 @@
 import logging
 import os
-import time
 import torch
 from utils.meter import AverageMeter
 from utils.metrics import Evaluator
-from utils.comm import get_rank, synchronize
+from utils.comm import get_rank, get_world_size, synchronize
+from utils.efficiency import (
+    build_epoch_efficiency_metrics,
+    finish_cuda_timer,
+    get_global_processed_examples,
+    get_peak_vram_metrics,
+    start_measurement,
+)
+from utils.wandb_tracking import (
+    WandbSession,
+    log_train_epoch_metrics,
+    log_val_metrics,
+)
 from torch.utils.tensorboard import SummaryWriter
 from prettytable import PrettyTable
 import numpy as np
@@ -164,13 +175,27 @@ def get_loss(model, data_loader):
 
 
 
+def _evaluate_with_efficiency(evaluator, model, distributed, device):
+    started_at = start_measurement(device)
+    eval_model = model.module.eval() if distributed else model.eval()
+    metrics = evaluator.eval(
+        eval_model,
+        i2t_metric=True,
+        return_metrics=True,
+    )
+    epoch_seconds = finish_cuda_timer(device, started_at)
+    vram_metrics = get_peak_vram_metrics(device)
+    return metrics, {"epoch_seconds": epoch_seconds}, vram_metrics
+
+
 def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
-             scheduler, checkpointer):
+             scheduler, checkpointer, wandb_session=None):
 
     log_period = args.log_period
     eval_period = args.eval_period
-    device = "cuda"
+    device = torch.device("cuda")
     num_epoch = args.num_epoch
+    session = wandb_session or WandbSession(None)
     arguments = {}
     arguments["num_epoch"] = num_epoch
     arguments["iteration"] = 0
@@ -190,13 +215,15 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
     tb_writer = SummaryWriter(log_dir=args.output_dir)
 
     best_top1 = 0.0
+    best_epoch = 0
+    cumulative_gpu_seconds = 0.0
     # evaluator.eval(model.eval())
     # train
     sims = []
     for epoch in range(start_epoch, num_epoch + 1):
-        start_time = time.time()
         for meter in meters.values():
             meter.reset()
+        train_started_at = start_measurement(device)
 
         # model.train()
         model.epoch = epoch
@@ -241,39 +268,77 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
                 logger.info(info_str)
         
  
+        train_seconds = finish_cuda_timer(device, train_started_at)
+        train_vram = get_peak_vram_metrics(device)
+        processed_examples = get_global_processed_examples(
+            meters["loss"].count,
+            device,
+        )
+        cumulative_gpu_seconds += train_seconds * get_world_size()
+        train_efficiency = build_epoch_efficiency_metrics(
+            train_seconds,
+            processed_examples,
+            cumulative_gpu_seconds,
+        )
+
         tb_writer.add_scalar('lr', scheduler.get_lr()[0], epoch)
         tb_writer.add_scalar('temperature', ret['temperature'], epoch)
         for k, v in meters.items():
             if v.avg > 0:
                 tb_writer.add_scalar(k, v.avg, epoch)
 
+        if get_rank() == 0:
+            log_train_epoch_metrics(
+                session,
+                epoch,
+                meters,
+                scheduler.get_lr()[0],
+                temperature=ret.get("temperature"),
+                efficiency_metrics=train_efficiency,
+                vram_metrics=train_vram,
+            )
+
         scheduler.step()
         if get_rank() == 0:
-            end_time = time.time()
-            time_per_batch = (end_time - start_time) / (n_iter + 1)
+            time_per_batch = train_seconds / (n_iter + 1)
             logger.info(
                 "Epoch {} done. Time per batch: {:.3f}[s] Speed: {:.1f}[samples/s]"
                 .format(epoch, time_per_batch,
-                        train_loader.batch_size / time_per_batch))
+                        train_efficiency["examples_per_second"]))
         if epoch % eval_period == 0:
             if get_rank() == 0:
                 logger.info("Validation Results - Epoch: {}".format(epoch))
-                if args.distributed:
-                    top1 = evaluator.eval(model.module.eval())
-                else:
-                    top1 = evaluator.eval(model.eval())
+                metrics, val_efficiency, val_vram = _evaluate_with_efficiency(
+                    evaluator,
+                    model,
+                    args.distributed,
+                    device,
+                )
+                top1 = metrics["t2i_R1"]
+                for key, value in metrics.items():
+                    tb_writer.add_scalar(f"val/{key}", value, epoch)
+                log_val_metrics(
+                    session,
+                    epoch,
+                    metrics,
+                    efficiency_metrics=val_efficiency,
+                    vram_metrics=val_vram,
+                )
 
                 torch.cuda.empty_cache()
                 if best_top1 < top1:
                     best_top1 = top1
+                    best_epoch = epoch
                     arguments["epoch"] = epoch
                     checkpointer.save("best", **arguments)
  
     if get_rank() == 0:
-        logger.info(f"best R1: {best_top1} at epoch {arguments['epoch']}")
+        logger.info(f"best R1: {best_top1} at epoch {best_epoch}")
 
     arguments["epoch"] = epoch
     checkpointer.save("last", **arguments)
+    tb_writer.close()
+    return best_top1, best_epoch
                     
 def do_inference(model, test_img_loader, test_txt_loader):
 

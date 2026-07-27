@@ -144,3 +144,23 @@ python test.py --checkpoint_dir run_logs/CUHK-PEDES/<run_dir> --root_dir /data/j
 3. 새 데이터셋 추가 시 `datasets/build.py`의 `__factory` 등록과 전용 로더 클래스가 필요하다.
 4. CUHK-PEDES만 학습 PID에 `-1` 보정이 있어, 다른 데이터셋과 PID 스킴이 다르다.
 5. 학습 출력의 `configs.yaml`에 `root_dir`이 저장되므로, 평가 시 데이터 위치가 바뀌면 `--root_dir`로 덮어쓸 것.
+
+## Weights & Biases
+
+`run_rde.sh`는 `--wandb`를 전달한다. 직접 실행할 때는
+`python train.py --wandb ...`를 사용한다. 설정 우선순위는 프로세스
+환경변수, `<repository>/env/.env`, 기본값 순서이며 읽는 키는
+`WANDB_API_KEY`, `WANDB_ENTITY`, `WANDB_PROJECT`이다. 기본 프로젝트는
+`rde`이다.
+
+IRRA와 호환되는 지표 namespace:
+
+- `train/*`: 전체/BGE/TSE loss, learning rate, temperature, epoch seconds,
+  examples per second, cumulative GPU hours, peak allocated/reserved VRAM.
+- `val/t2i_*`, `val/i2t_*`: 최종 BGE+TSE의 R@1, R@5, R@10, mAP, mINP 및
+  `error@k`.
+- `val/bge_*`, `val/tse_*`: 각 분기의 양방향 검색 지표.
+- `val/epoch_seconds`, `val/peak_vram_*`: 검증 시간과 peak VRAM.
+
+분산 학습에서는 rank 0만 W&B run을 생성하고 기록한다. 실제 비밀값이
+있는 `env/.env`는 커밋하지 말고 `env/.env.example`을 템플릿으로 쓴다.

@@ -14,6 +14,7 @@ DATASET_NAME=CUHK-PEDES
 noisy_file="${SCRIPT_DIR}/noiseindex/${DATASET_NAME}_${noisy_rate}.npy"
 CUDA_VISIBLE_DEVICES=0 \
     python train.py \
+    --wandb \
     --noisy_rate $noisy_rate \
     --noisy_file $noisy_file \
     --name RDE \

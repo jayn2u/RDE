@@ -17,6 +17,8 @@ __pycache__/
 venv/
 .env
 .env.*
+env/.env
+!env/.env.example
 
 # RDE training/evaluation artifacts
 2024-CVPR-RDE/run_logs/
