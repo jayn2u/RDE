@@ -16,9 +16,10 @@ WANDB_ENTITY=your-wandb-entity
 WANDB_PROJECT=rde
 ```
 
-The legacy `env/.env`, `env/.env.example`, and
-`2024-CVPR-RDE/env/.env.example` files are removed. The W&B loader and CLI
-default resolve `.env` relative to the repository root. Process environment
+The legacy nested environment files and template are removed. The W&B loader
+and CLI default resolve `.env` relative to the repository root. The dataset
+argument default reads `RDE_DATA_ROOT` from the same file, and the shell
+launcher does not mask that default with its own fallback. Process environment
 variables and explicit CLI settings continue to take precedence.
 
 ## Ignore policy
@@ -50,8 +51,8 @@ Verification covers:
 
 1. `git check-ignore` confirms secrets and generated artifacts are ignored
    while source, lock, and noise-index files remain trackable.
-2. A repository search finds no legacy `env/.env`, `.env.example`, or
-   `DATASET_ROOT` references.
-3. Tests confirm the default W&B environment path is the root `.env` and
-   preserve environment-variable precedence.
+2. A search of active code and guidance finds no nested environment path,
+   environment template, or unsupported dataset-root key.
+3. Tests confirm the default W&B environment path and dataset root use the
+   root `.env` while preserving process-environment precedence.
 4. The full existing test suite runs with `uv run python`.
