@@ -94,6 +94,29 @@ class CheckpointTrainingStateTest(unittest.TestCase):
 
         self.assertEqual(target.weight.item(), 2.0)
 
+    def test_legacy_resume_initializes_ema_from_resumed_raw_model(self):
+        with tempfile.NamedTemporaryFile(suffix=".pth") as checkpoint_file:
+            saved_model = torch.nn.Linear(1, 1, bias=False)
+            saved_model.weight.data.fill_(3.0)
+            torch.save(
+                {"model": saved_model.state_dict(), "epoch": 4},
+                checkpoint_file.name,
+            )
+            resumed_model = torch.nn.Linear(1, 1, bias=False)
+            resumed_model.weight.data.fill_(1.0)
+            ema_model = build_ema_model(resumed_model, decay=0.5)
+            ema_model.module.weight.data.fill_(9.0)
+            ema_model.n_averaged.fill_(8)
+
+            Checkpointer(
+                resumed_model,
+                ema_model=ema_model,
+            ).resume(checkpoint_file.name)
+
+        self.assertEqual(resumed_model.weight.item(), 3.0)
+        self.assertEqual(ema_model.module.weight.item(), 3.0)
+        self.assertEqual(ema_model.n_averaged.item(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

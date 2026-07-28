@@ -82,6 +82,15 @@ class Checkpointer:
         if "ema_model" in checkpoint and self.ema_model is not None:
             self.logger.info("Loading EMA model from {}".format(f))
             self.ema_model.load_state_dict(checkpoint.pop("ema_model"))
+        elif self.ema_model is not None:
+            self.logger.info(
+                "EMA state not found; initializing EMA from resumed model"
+            )
+            load_state_dict(
+                self.ema_model.module,
+                self.model.state_dict(),
+            )
+            self.ema_model.n_averaged.zero_()
         checkpoint.pop("model", None)
         checkpoint.pop("ema_model", None)
         # return any further checkpoint data
