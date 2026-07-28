@@ -32,6 +32,22 @@ If you want to experiment with the same noise index as in the paper, the noise i
 sh run_rde.sh
 ```
 
+`run_rde.sh` enables W&B tracking. Before the first run, create the local
+environment file:
+
+```bash
+cp env/.env.example env/.env
+```
+
+Set the dataset path, W&B API key, and entity in `env/.env`. Process
+environment variables take precedence over `env/.env`. To run
+`train.py` directly, pass `--wandb`. The run logs training loss components,
+learning rate and temperature, epoch time, examples per second, cumulative GPU
+hours, peak allocated/reserved VRAM, and bidirectional retrieval metrics. The
+primary `val/t2i_*` and `val/i2t_*` values use the final BGE+TSE score; component
+results are available under `val/bge_*` and `val/tse_*`. Each output directory
+also contains `wandb_meta.json` and `wandb_run_id`.
+
 ### Evaluation
 Modify the  ```sub``` in the ```test.py``` file and run it.
 ```

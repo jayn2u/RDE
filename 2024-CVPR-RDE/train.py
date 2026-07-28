@@ -16,6 +16,11 @@ from model import build_model
 from utils.metrics import Evaluator
 from utils.options import get_args
 from utils.comm import get_rank, synchronize
+from utils.wandb_tracking import (
+    WandbSession,
+    finish_train_run,
+    start_train_run,
+)
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -84,7 +89,28 @@ if __name__ == '__main__':
         logger.info(f"===================>start {start_epoch}")
 
 
-    do_train(start_epoch, args, model, train_loader, evaluator, optimizer, scheduler, checkpointer)
+    wandb_session = start_train_run(args) if is_master else WandbSession(None)
+    try:
+        best_top1, best_epoch = do_train(
+            start_epoch,
+            args,
+            model,
+            train_loader,
+            evaluator,
+            optimizer,
+            scheduler,
+            checkpointer,
+            wandb_session=wandb_session,
+        )
+        if is_master:
+            finish_train_run(
+                wandb_session,
+                best_top1,
+                best_epoch,
+                args.output_dir,
+            )
+    finally:
+        wandb_session.finish()
     
     # test
     logger.info(f"===================>start test")
@@ -97,6 +123,6 @@ if __name__ == '__main__':
             model = build_model(args,num_classes)
             checkpointer = Checkpointer(model)
             checkpointer.load(f=op.join(args.output_dir, asss[i]))
-            model = model.cuda()
+            model = model.to(device)
             do_inference(model, test_img_loader, test_txt_loader)
      
