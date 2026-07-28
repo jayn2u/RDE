@@ -1,5 +1,9 @@
 # Gitignore and Environment Consolidation Implementation Plan
 
+> Superseded for environment-file placement by
+> `2026-07-28-env-directory-layout.md`. This document records the earlier
+> implementation sequence.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Consolidate local configuration into one ignored repository-root `.env` and prevent generated Python/ML artifacts from being tracked.

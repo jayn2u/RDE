@@ -67,10 +67,12 @@ class WandbTrackingTest(unittest.TestCase):
 
         self.assertEqual(value, "rde")
 
-    def test_default_env_file_is_repository_root_dotenv(self):
+    def test_default_env_file_is_repository_env_dotenv(self):
         fake_wandb = FakeWandb()
         with tempfile.TemporaryDirectory() as project_root:
-            env_path = os.path.join(project_root, ".env")
+            env_dir = os.path.join(project_root, "env")
+            os.makedirs(env_dir)
+            env_path = os.path.join(env_dir, ".env")
             with open(env_path, "w", encoding="utf-8") as env_file:
                 env_file.write(
                     "WANDB_API_KEY=root-env-key\n"
@@ -107,9 +109,11 @@ class WandbTrackingTest(unittest.TestCase):
             "root-env-entity",
         )
 
-    def test_dataset_root_defaults_from_repository_root_dotenv(self):
+    def test_dataset_root_defaults_from_repository_env_dotenv(self):
         with tempfile.TemporaryDirectory() as project_root:
-            env_path = os.path.join(project_root, ".env")
+            env_dir = os.path.join(project_root, "env")
+            os.makedirs(env_dir)
+            env_path = os.path.join(env_dir, ".env")
             with open(env_path, "w", encoding="utf-8") as env_file:
                 env_file.write("RDE_DATA_ROOT=/tmp/rde-test-datasets\n")
             with (

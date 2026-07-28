@@ -85,7 +85,7 @@ def _read_setting(args, key):
 def _env_file(args):
     configured = _read_setting(args, "wandb_env_file")
     if not configured:
-        return op.join(PROJECT_ROOT, ".env")
+        return op.join(PROJECT_ROOT, "env", ".env")
     if op.isabs(configured):
         return configured
     return op.join(PROJECT_ROOT, configured)

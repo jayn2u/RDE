@@ -149,7 +149,7 @@ python test.py --checkpoint_dir run_logs/CUHK-PEDES/<run_dir> --root_dir /data/j
 
 `run_rde.sh`는 `--wandb`를 전달한다. 직접 실행할 때는
 `python train.py --wandb ...`를 사용한다. 설정 우선순위는 프로세스
-환경변수, `<repository>/.env`, 기본값 순서이며 읽는 키는
+환경변수, `<repository>/env/.env`, 기본값 순서이며 읽는 키는
 `WANDB_API_KEY`, `WANDB_ENTITY`, `WANDB_PROJECT`이다. 기본 프로젝트는
 `rde`이다. 같은 `.env`의 `RDE_DATA_ROOT`는 데이터셋 기본 경로를
 설정한다.
@@ -163,5 +163,6 @@ IRRA와 호환되는 지표 namespace:
 - `val/bge_*`, `val/tse_*`: 각 분기의 양방향 검색 지표.
 - `val/epoch_seconds`, `val/peak_vram_*`: 검증 시간과 peak VRAM.
 
-분산 학습에서는 rank 0만 W&B run을 생성하고 기록한다. 실제 비밀값이
-있는 루트 `.env`는 `.gitignore`로 제외되므로 커밋하지 않는다.
+분산 학습에서는 rank 0만 W&B run을 생성하고 기록한다.
+`env/.env.example`은 커밋하는 템플릿이고, 실제 비밀값이 있는
+`env/.env`는 `.gitignore`로 제외되므로 커밋하지 않는다.

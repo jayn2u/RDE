@@ -10,7 +10,7 @@ measurements as the local IRRA project.
 
 - `--wandb` enables tracking; without it, all tracking calls are no-ops.
 - `WANDB_API_KEY`, `WANDB_ENTITY`, and `WANDB_PROJECT` are read from the
-  process environment first and then from the repository's root `.env`.
+  process environment first and then from the repository's `env/.env`.
 - `--wandb_env_file` overrides the env-file path.
 - `--wandb_project`, `--wandb_entity`, `--wandb_run_name`,
   `--wandb_group`, `--wandb_tags`, and `--wandb_notes` override optional run

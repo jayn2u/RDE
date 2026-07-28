@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Process environment values override the repository root `.env`.
+- Process environment values override the repository `env/.env`.
 - `WANDB_PROJECT` is normally `rde`, with `rde` as the code fallback.
 - Tracking is enabled only by `--wandb`; `run_rde.sh` supplies the flag.
 - Only rank 0 initializes and writes to W&B.
@@ -29,7 +29,7 @@
 - Modify: `2024-CVPR-RDE/utils/options.py`
 - Modify: `pyproject.toml`
 - Modify: `.gitignore`
-- Create locally: `.env`
+- Create: `env/.env.example`
 
 **Interfaces:**
 - Produces: `WandbSession`, `start_train_run(args)`, `log_train_epoch_metrics(...)`, `log_val_metrics(...)`, `finish_train_run(...)`

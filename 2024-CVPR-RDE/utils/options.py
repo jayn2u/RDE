@@ -8,7 +8,7 @@ DEFAULT_DATA_ROOT = "/data/jayn2u/lab_datasets"
 
 
 def _default_data_root():
-    env_file = op.join(PROJECT_ROOT, ".env")
+    env_file = op.join(PROJECT_ROOT, "env", ".env")
     return read_env_value("RDE_DATA_ROOT", env_file) or DEFAULT_DATA_ROOT
 
 
@@ -37,7 +37,7 @@ def get_args():
     parser.add_argument("--wandb_group", default="", help="custom W&B run group")
     parser.add_argument("--wandb_notes", default="", help="W&B run notes")
     parser.add_argument("--wandb_tags", nargs="*", default=[], help="W&B run tags")
-    parser.add_argument("--wandb_env_file", default=".env", help="W&B environment file relative to the repository root")
+    parser.add_argument("--wandb_env_file", default="env/.env", help="W&B environment file relative to the repository root")
 
     ######################## model general settings ########################
     parser.add_argument("--pretrain_choice", default='ViT-B/16') # whether use pretrained model
