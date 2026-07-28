@@ -219,14 +219,20 @@ git commit -m "feat: train and evaluate with EMA weights" \
 - [ ] **Step 1: Write a failing launcher test**
 
 ```python
-def test_launcher_enables_all_training_features():
-    script = Path("2024-CVPR-RDE/run_rde_amp_ema_gc.sh").read_text()
-    assert "uv run python train.py" in script
-    assert "--amp" in script
-    assert "--amp_dtype fp16" in script
-    assert "--ema" in script
-    assert "--ema_decay 0.999" in script
-    assert "--gradient_checkpointing" in script
+def test_launcher_invokes_training_with_all_features():
+    with fake_uv_executable() as invocation_file:
+        subprocess.run(
+            ["bash", "2024-CVPR-RDE/run_rde_amp_ema_gc.sh"],
+            check=True,
+            env=fake_uv_environment(invocation_file),
+        )
+    invocation = invocation_file.read_text()
+    assert invocation.startswith("run python train.py ")
+    assert "--amp" in invocation.split()
+    assert ["--amp_dtype", "fp16"] == adjacent_args(invocation, "--amp_dtype")
+    assert "--ema" in invocation.split()
+    assert ["--ema_decay", "0.999"] == adjacent_args(invocation, "--ema_decay")
+    assert "--gradient_checkpointing" in invocation.split()
 ```
 
 - [ ] **Step 2: Run the launcher test and verify the missing file fails**

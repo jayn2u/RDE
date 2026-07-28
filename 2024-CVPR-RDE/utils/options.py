@@ -7,6 +7,15 @@ from utils.wandb_tracking import PROJECT_ROOT, read_env_value
 DEFAULT_DATA_ROOT = "/data/jayn2u/lab_datasets"
 
 
+def _ema_decay(value):
+    decay = float(value)
+    if not 0.0 < decay < 1.0:
+        raise argparse.ArgumentTypeError(
+            "EMA decay must be strictly between 0 and 1"
+        )
+    return decay
+
+
 def _default_data_root():
     env_file = op.join(PROJECT_ROOT, "env", ".env")
     return read_env_value("RDE_DATA_ROOT", env_file) or DEFAULT_DATA_ROOT
@@ -71,6 +80,16 @@ def get_args():
     parser.add_argument("--weight_decay_bias", type=float, default=0.)
     parser.add_argument("--alpha", type=float, default=0.9)
     parser.add_argument("--beta", type=float, default=0.999)
+    parser.add_argument("--amp", action="store_true",
+                        help="enable CUDA automatic mixed precision")
+    parser.add_argument("--amp_dtype", choices=("fp16", "bf16"), default="fp16",
+                        help="autocast dtype used when --amp is enabled")
+    parser.add_argument("--ema", action="store_true",
+                        help="enable exponential moving average weights")
+    parser.add_argument("--ema_decay", type=_ema_decay, default=0.999,
+                        help="EMA decay, strictly between 0 and 1")
+    parser.add_argument("--gradient_checkpointing", action="store_true",
+                        help="checkpoint CLIP Transformer blocks during training")
     
     ######################## scheduler ########################
     parser.add_argument("--num_epoch", type=int, default=60)
