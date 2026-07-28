@@ -5,6 +5,11 @@ from unittest.mock import patch
 
 import torch
 
+from model.CrossEmbeddingLayer_tse import (
+    TexualEmbeddingLayer,
+    VisualEmbeddingLayer,
+)
+from model.clip_model import Transformer
 from utils.options import get_args
 from utils.training import (
     build_ema_model,
@@ -132,6 +137,73 @@ class TrainingFeatureTest(unittest.TestCase):
 
         self.assertEqual(ema_model.module[0].weight.item(), 4.0)
         self.assertEqual(ema_model.module[1].running_mean.item(), 4.0)
+
+    def test_transformer_checkpoints_only_during_gradient_enabled_training(self):
+        transformer = Transformer(width=8, layers=2, heads=1)
+        transformer.set_gradient_checkpointing(True)
+        transformer.train()
+
+        def run_block(function, *args, **kwargs):
+            self.assertFalse(kwargs["use_reentrant"])
+            return function(*args)
+
+        with patch(
+            "model.clip_model.checkpoint",
+            side_effect=run_block,
+        ) as checkpoint_call:
+            transformer([torch.randn(3, 2, 8, requires_grad=True)])
+            self.assertEqual(checkpoint_call.call_count, 2)
+
+            transformer.eval()
+            transformer([torch.randn(3, 2, 8, requires_grad=True)])
+            self.assertEqual(checkpoint_call.call_count, 2)
+
+            transformer.train()
+            with torch.no_grad():
+                transformer([torch.randn(3, 2, 8)])
+            self.assertEqual(checkpoint_call.call_count, 2)
+
+    def test_checkpointed_transformer_matches_regular_forward_and_backward(self):
+        regular = Transformer(width=8, layers=2, heads=1)
+        checkpointed = Transformer(width=8, layers=2, heads=1)
+        checkpointed.load_state_dict(regular.state_dict())
+        checkpointed.set_gradient_checkpointing(True)
+        regular.train()
+        checkpointed.train()
+        regular_input = torch.randn(3, 2, 8, requires_grad=True)
+        checkpointed_input = regular_input.detach().clone().requires_grad_(True)
+
+        regular_output = regular([regular_input])[0]
+        checkpointed_output = checkpointed([checkpointed_input])[0]
+        regular_output.sum().backward()
+        checkpointed_output.sum().backward()
+
+        torch.testing.assert_close(checkpointed_output, regular_output)
+        torch.testing.assert_close(
+            checkpointed_input.grad,
+            regular_input.grad,
+        )
+
+    def test_tse_layers_accept_inputs_matching_fp32_model_parameters(self):
+        text_layer = TexualEmbeddingLayer(
+            input_dim=4,
+            embed_dim=4,
+            ratio=0.5,
+        )
+        visual_layer = VisualEmbeddingLayer(
+            input_dim=4,
+            embed_dim=4,
+            ratio=0.5,
+        )
+        features = torch.randn(2, 4, 4)
+        attention = torch.randn(2, 4, 4)
+        text = torch.tensor([[1, 2, 3, 0], [1, 2, 3, 0]])
+
+        text_output = text_layer(features, text, attention.clone())
+        visual_output = visual_layer(features, attention.clone())
+
+        self.assertEqual(text_output.dtype, torch.float32)
+        self.assertEqual(visual_output.dtype, torch.float32)
 
 
 if __name__ == "__main__":

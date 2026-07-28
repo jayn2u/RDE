@@ -14,6 +14,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 
 
 logger = logging.getLogger("IRRA.model")
@@ -259,10 +260,33 @@ class Transformer(nn.Module):
         super().__init__()
         self.width = width
         self.layers = layers
-        self.resblocks = nn.Sequential(*[ResidualAttentionBlock(width, heads, attn_mask) for _ in range(layers)])
+        self.resblocks = nn.ModuleList(
+            [
+                ResidualAttentionBlock(width, heads, attn_mask)
+                for _ in range(layers)
+            ]
+        )
+        self.gradient_checkpointing = False
+
+    def set_gradient_checkpointing(self, enabled: bool):
+        self.gradient_checkpointing = enabled
 
     def forward(self, x: torch.Tensor):
-        return self.resblocks(x)
+        outputs = x
+        for block in self.resblocks:
+            if (
+                self.gradient_checkpointing
+                and self.training
+                and torch.is_grad_enabled()
+            ):
+                outputs = checkpoint(
+                    block,
+                    outputs,
+                    use_reentrant=False,
+                )
+            else:
+                outputs = block(outputs)
+        return outputs
 
 
 class VisionTransformer(nn.Module):
@@ -408,6 +432,11 @@ class CLIP(nn.Module):
     @property
     def dtype(self):
         return self.visual.conv1.weight.dtype
+
+    def set_gradient_checkpointing(self, enabled: bool):
+        self.transformer.set_gradient_checkpointing(enabled)
+        if hasattr(self.visual, "transformer"):
+            self.visual.transformer.set_gradient_checkpointing(enabled)
 
     def encode_image(self, image):
         return self.visual(image.type(self.dtype))
@@ -603,5 +632,4 @@ def build_CLIP_from_openai_pretrained(name: str, image_size: Union[int, Tuple[in
     # resize modified pos embedding
     model.load_param(state_dict)
     return model, model_cfg
-
 
