@@ -75,7 +75,8 @@ class TexualEmbeddingLayer(nn.Module):
 
         lengths = torch.Tensor([lengths[i] if lengths[i] < k else k for i in range(bs)]) # Keep at least K
         
-        cap_emb = self.linear(features.half())
+        features = features.to(dtype=self.linear.weight.dtype)
+        cap_emb = self.linear(features)
         features = self.mlp(features) + cap_emb
         features = maxk_pool1d_var(features, 1, 1, lengths.to(cap_emb.device))  # max 
         
@@ -100,8 +101,12 @@ class VisualEmbeddingLayer(nn.Module):
         atten_topK = atten_topK.unsqueeze(-1).expand(bs, k, base_features.size(2)) # 64 x k x 512
         base_features = torch.gather(input=base_features,dim=1,index=atten_topK)  # 64 x k x 512
         base_features = l2norm(base_features, dim=-1) 
-        base_features = base_features.half()
-        feat_lengths = torch.zeros(base_features.size(0)).to(base_features.device).half()
+        base_features = base_features.to(dtype=self.fc.weight.dtype)
+        feat_lengths = torch.zeros(
+            base_features.size(0),
+            device=base_features.device,
+            dtype=base_features.dtype,
+        )
         feat_lengths[:] = base_features.size(1)
         
         features = self.fc(base_features)

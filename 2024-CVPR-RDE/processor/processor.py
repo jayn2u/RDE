@@ -16,6 +16,12 @@ from utils.wandb_tracking import (
     log_train_epoch_metrics,
     log_val_metrics,
 )
+from utils.training import (
+    autocast_context,
+    build_grad_scaler,
+    optimizer_step,
+    unwrap_model,
+)
 from torch.utils.tensorboard import SummaryWriter
 from prettytable import PrettyTable
 import numpy as np
@@ -122,7 +128,12 @@ def split_prob(prob, threshld):
     pred = (prob > threshld)
     return (pred+0)
 
-def get_loss(model, data_loader):
+def get_loss(
+    model,
+    data_loader,
+    amp_enabled=False,
+    amp_dtype="fp16",
+):
     logger = logging.getLogger("RDE.train")
     model.eval()
     device = "cuda"
@@ -132,7 +143,7 @@ def get_loss(model, data_loader):
     for i, batch in enumerate(data_loader):
         batch = {k: v.to(device) for k, v in batch.items()}
         index = batch['index']
-        with torch.no_grad(): 
+        with torch.no_grad(), autocast_context(amp_enabled, amp_dtype):
             la, lb, sa, sb = model.compute_per_loss(batch)
             for b in range(la.size(0)):
                 lossA[index[b]]= la[b]
@@ -175,27 +186,39 @@ def get_loss(model, data_loader):
 
 
 
-def _evaluate_with_efficiency(evaluator, model, distributed, device):
+def _evaluate_with_efficiency(
+    evaluator,
+    model,
+    distributed,
+    device,
+    amp_enabled=False,
+    amp_dtype="fp16",
+):
     started_at = start_measurement(device)
-    eval_model = model.module.eval() if distributed else model.eval()
-    metrics = evaluator.eval(
-        eval_model,
-        i2t_metric=True,
-        return_metrics=True,
-    )
+    eval_model = unwrap_model(model).eval()
+    with autocast_context(amp_enabled, amp_dtype):
+        metrics = evaluator.eval(
+            eval_model,
+            i2t_metric=True,
+            return_metrics=True,
+        )
     epoch_seconds = finish_cuda_timer(device, started_at)
     vram_metrics = get_peak_vram_metrics(device)
     return metrics, {"epoch_seconds": epoch_seconds}, vram_metrics
 
 
 def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
-             scheduler, checkpointer, wandb_session=None):
+             scheduler, checkpointer, wandb_session=None, scaler=None,
+             ema_model=None):
 
     log_period = args.log_period
     eval_period = args.eval_period
     device = torch.device("cuda")
     num_epoch = args.num_epoch
     session = wandb_session or WandbSession(None)
+    amp_enabled = getattr(args, "amp", False)
+    amp_dtype = getattr(args, "amp_dtype", "fp16")
+    scaler = scaler or build_grad_scaler(amp_enabled, amp_dtype)
     arguments = {}
     arguments["num_epoch"] = num_epoch
     arguments["iteration"] = 0
@@ -230,7 +253,12 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
         # data_size = train_loader.dataset.__len__()
         # pred_A, pred_B  =  torch.ones(data_size), torch.ones(data_size)
     
-        pred_A, pred_B = get_loss(model, train_loader)
+        pred_A, pred_B = get_loss(
+            model,
+            train_loader,
+            amp_enabled=amp_enabled,
+            amp_dtype=amp_dtype,
+        )
     
         consensus_division = pred_A + pred_B # 0,1,2 
         consensus_division[consensus_division==1] += torch.randint(0, 2, size=(((consensus_division==1)+0).sum(),))
@@ -245,8 +273,11 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
             
             batch['label_hat'] = label_hat[index.cpu()]
  
-            ret = model(batch)
-            total_loss = sum([v for k, v in ret.items() if "loss" in k])
+            with autocast_context(amp_enabled, amp_dtype):
+                ret = model(batch)
+                total_loss = sum(
+                    [v for k, v in ret.items() if "loss" in k]
+                )
 
             batch_size = batch['images'].shape[0]
             meters['loss'].update(total_loss.item(), batch_size)
@@ -254,8 +285,13 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
             meters['tse_loss'].update(ret.get('tse_loss', 0), batch_size)
          
             optimizer.zero_grad()
-            total_loss.backward()
-            optimizer.step()
+            step_succeeded = optimizer_step(
+                total_loss,
+                optimizer,
+                scaler,
+            )
+            if step_succeeded and ema_model is not None:
+                ema_model.update_parameters(unwrap_model(model))
             synchronize()
 
             if (n_iter + 1) % log_period == 0:
@@ -310,9 +346,11 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
                 logger.info("Validation Results - Epoch: {}".format(epoch))
                 metrics, val_efficiency, val_vram = _evaluate_with_efficiency(
                     evaluator,
-                    model,
+                    ema_model if ema_model is not None else model,
                     args.distributed,
                     device,
+                    amp_enabled=amp_enabled,
+                    amp_dtype=amp_dtype,
                 )
                 top1 = metrics["t2i_R1"]
                 for key, value in metrics.items():

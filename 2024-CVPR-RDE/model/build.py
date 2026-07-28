@@ -21,6 +21,9 @@ class RDE(nn.Module):
         self._set_task()
 
         self.base_model, base_cfg = build_CLIP_from_openai_pretrained(args.pretrain_choice, args.img_size, args.stride_size)
+        self.base_model.set_gradient_checkpointing(
+            getattr(args, "gradient_checkpointing", False)
+        )
         self.embed_dim = base_cfg['embed_dim']
 
         self.logit_scale = torch.ones([]) * (1 / args.temperature) 
@@ -114,6 +117,6 @@ class RDE(nn.Module):
 
 def build_model(args, num_classes=11003):
     model = RDE(args, num_classes)
-    # covert model to fp16
-    convert_weights(model)
+    if not getattr(args, "amp", False):
+        convert_weights(model)
     return model

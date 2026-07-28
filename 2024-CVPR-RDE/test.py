@@ -51,6 +51,6 @@ if __name__ == '__main__':
         if op.exists(ckpt_path):
             model = build_model(args, num_classes)
             checkpointer = Checkpointer(model)
-            checkpointer.load(f=ckpt_path)
+            checkpointer.load(f=ckpt_path, prefer_ema=True)
             model = model.to(device)
             do_inference(model, test_img_loader, test_txt_loader)

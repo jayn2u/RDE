@@ -49,6 +49,15 @@ class OneEpochModel:
         }
 
 
+class RecordingEma:
+    def __init__(self):
+        self.module = OneEpochModel()
+        self.updated_from = []
+
+    def update_parameters(self, model):
+        self.updated_from.append(model)
+
+
 class TrainingTrackingTest(unittest.TestCase):
     def test_one_epoch_logs_measured_train_and_validation_metrics(self):
         train_loader = [
@@ -138,6 +147,145 @@ class TrainingTrackingTest(unittest.TestCase):
             iteration=0,
             epoch=1,
         )
+
+    def test_one_epoch_updates_ema_and_uses_it_for_validation(self):
+        train_loader = [
+            {
+                "images": BatchValue(shape=(2, 3, 4, 4)),
+                "index": IndexValue(),
+            }
+        ]
+        args = SimpleNamespace(
+            log_period=100,
+            eval_period=1,
+            num_epoch=1,
+            output_dir=tempfile.gettempdir(),
+            distributed=False,
+            amp=False,
+            amp_dtype="fp16",
+        )
+        model = OneEpochModel()
+        ema_model = RecordingEma()
+        optimizer = Mock()
+        scheduler = Mock()
+        scheduler.get_lr.return_value = [1e-5]
+        checkpointer = Mock()
+
+        with (
+            patch("processor.processor.SummaryWriter"),
+            patch("processor.processor.synchronize"),
+            patch("processor.processor.get_rank", return_value=0),
+            patch("processor.processor.get_world_size", return_value=1),
+            patch(
+                "processor.processor.get_loss",
+                return_value=(torch.ones(2), torch.ones(2)),
+            ),
+            patch(
+                "processor.processor.start_measurement",
+                return_value=10.0,
+            ),
+            patch(
+                "processor.processor.finish_cuda_timer",
+                return_value=5.0,
+            ),
+            patch(
+                "processor.processor.get_peak_vram_metrics",
+                return_value={"peak_vram_allocated_mb": 9000.0},
+            ),
+            patch(
+                "processor.processor.get_global_processed_examples",
+                return_value=2,
+            ),
+            patch(
+                "processor.processor._evaluate_with_efficiency",
+                return_value=(
+                    {"t2i_R1": 75.94},
+                    {"epoch_seconds": 2.0},
+                    {"peak_vram_allocated_mb": 7000.0},
+                ),
+            ) as evaluate,
+            patch("processor.processor.torch.cuda.empty_cache"),
+        ):
+            do_train(
+                start_epoch=1,
+                args=args,
+                model=model,
+                train_loader=train_loader,
+                evaluator=Mock(),
+                optimizer=optimizer,
+                scheduler=scheduler,
+                checkpointer=checkpointer,
+                ema_model=ema_model,
+            )
+
+        self.assertEqual(ema_model.updated_from, [model])
+        self.assertIs(evaluate.call_args.args[1], ema_model)
+
+    def test_scaler_overflow_skips_ema_update(self):
+        train_loader = [
+            {
+                "images": BatchValue(shape=(2, 3, 4, 4)),
+                "index": IndexValue(),
+            }
+        ]
+        args = SimpleNamespace(
+            log_period=100,
+            eval_period=2,
+            num_epoch=1,
+            output_dir=tempfile.gettempdir(),
+            distributed=False,
+            amp=True,
+            amp_dtype="fp16",
+        )
+        model = OneEpochModel()
+        ema_model = RecordingEma()
+        optimizer = Mock()
+        scheduler = Mock()
+        scheduler.get_lr.return_value = [1e-5]
+
+        with (
+            patch("processor.processor.SummaryWriter"),
+            patch("processor.processor.synchronize"),
+            patch("processor.processor.get_rank", return_value=0),
+            patch("processor.processor.get_world_size", return_value=1),
+            patch(
+                "processor.processor.get_loss",
+                return_value=(torch.ones(2), torch.ones(2)),
+            ),
+            patch(
+                "processor.processor.optimizer_step",
+                return_value=False,
+            ),
+            patch(
+                "processor.processor.start_measurement",
+                return_value=10.0,
+            ),
+            patch(
+                "processor.processor.finish_cuda_timer",
+                return_value=5.0,
+            ),
+            patch(
+                "processor.processor.get_peak_vram_metrics",
+                return_value={"peak_vram_allocated_mb": 9000.0},
+            ),
+            patch(
+                "processor.processor.get_global_processed_examples",
+                return_value=2,
+            ),
+        ):
+            do_train(
+                start_epoch=1,
+                args=args,
+                model=model,
+                train_loader=train_loader,
+                evaluator=Mock(),
+                optimizer=optimizer,
+                scheduler=scheduler,
+                checkpointer=Mock(),
+                ema_model=ema_model,
+            )
+
+        self.assertEqual(ema_model.updated_from, [])
 
 
 if __name__ == "__main__":
