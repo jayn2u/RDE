@@ -21,6 +21,11 @@ from utils.wandb_tracking import (
     finish_train_run,
     start_train_run,
 )
+from utils.training import (
+    build_ema_model,
+    build_grad_scaler,
+    validate_training_options,
+)
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -47,6 +52,8 @@ if __name__ == '__main__':
         torch.cuda.set_device(args.local_rank)
         torch.distributed.init_process_group(backend="nccl", init_method="env://")
         synchronize()
+
+    validate_training_options(args)
     
     device = "cuda"
     cur_time = time.strftime("%Y%m%d_%H%M%S", time.localtime())
@@ -79,7 +86,21 @@ if __name__ == '__main__':
     scheduler = build_lr_scheduler(args, optimizer)
 
     is_master = get_rank() == 0
-    checkpointer = Checkpointer(model, optimizer, scheduler, args.output_dir, is_master)
+    scaler = build_grad_scaler(args.amp, args.amp_dtype)
+    ema_model = (
+        build_ema_model(model, args.ema_decay)
+        if args.ema and is_master
+        else None
+    )
+    checkpointer = Checkpointer(
+        model,
+        optimizer,
+        scheduler,
+        args.output_dir,
+        is_master,
+        scaler=scaler,
+        ema_model=ema_model,
+    )
     evaluator = Evaluator(val_img_loader, val_txt_loader)
 
     start_epoch = 1
@@ -101,6 +122,8 @@ if __name__ == '__main__':
             scheduler,
             checkpointer,
             wandb_session=wandb_session,
+            scaler=scaler,
+            ema_model=ema_model,
         )
         if is_master:
             finish_train_run(
@@ -122,7 +145,10 @@ if __name__ == '__main__':
         if os.path.exists(op.join(args.output_dir, asss[i])):
             model = build_model(args,num_classes)
             checkpointer = Checkpointer(model)
-            checkpointer.load(f=op.join(args.output_dir, asss[i]))
+            checkpointer.load(
+                f=op.join(args.output_dir, asss[i]),
+                prefer_ema=True,
+            )
             model = model.to(device)
             do_inference(model, test_img_loader, test_txt_loader)
      

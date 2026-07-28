@@ -15,10 +15,14 @@ class Checkpointer:
         save_dir="",
         save_to_disk=None,
         logger=None,
+        scaler=None,
+        ema_model=None,
     ):
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
+        self.scaler = scaler
+        self.ema_model = ema_model
         self.save_dir = save_dir
         self.save_to_disk = save_to_disk
         if logger is None:
@@ -38,20 +42,25 @@ class Checkpointer:
             data["optimizer"] = self.optimizer.state_dict()
         if self.scheduler is not None:
             data["scheduler"] = self.scheduler.state_dict()
+        if self.scaler is not None:
+            data["scaler"] = self.scaler.state_dict()
+        if self.ema_model is not None:
+            data["ema_model"] = self.ema_model.state_dict()
         data.update(kwargs)
 
         save_file = os.path.join(self.save_dir, "{}.pth".format(name))
         self.logger.info("Saving checkpoint to {}".format(save_file))
         torch.save(data, save_file)
 
-    def load(self, f=None):
+    def load(self, f=None, prefer_ema=False):
         if not f:
             # no checkpoint could be found
             self.logger.info("No checkpoint found.")
             return {}
         self.logger.info("Loading checkpoint from {}".format(f))
         checkpoint = self._load_file(f)
-        self._load_model(checkpoint)
+        self._load_model(checkpoint, prefer_ema=prefer_ema)
+        return checkpoint
 
     def resume(self, f=None):
         if not f:
@@ -67,14 +76,28 @@ class Checkpointer:
         if "scheduler" in checkpoint and self.scheduler:
             self.logger.info("Loading scheduler from {}".format(f))
             self.scheduler.load_state_dict(checkpoint.pop("scheduler"))
+        if "scaler" in checkpoint and self.scaler is not None:
+            self.logger.info("Loading gradient scaler from {}".format(f))
+            self.scaler.load_state_dict(checkpoint.pop("scaler"))
+        if "ema_model" in checkpoint and self.ema_model is not None:
+            self.logger.info("Loading EMA model from {}".format(f))
+            self.ema_model.load_state_dict(checkpoint.pop("ema_model"))
+        checkpoint.pop("model", None)
+        checkpoint.pop("ema_model", None)
         # return any further checkpoint data
         return checkpoint
 
     def _load_file(self, f):
         return torch.load(f, map_location=torch.device("cpu"))
 
-    def _load_model(self, checkpoint, except_keys=None):
-        load_state_dict(self.model, checkpoint.pop("model"), except_keys)
+    def _load_model(self, checkpoint, except_keys=None, prefer_ema=False):
+        if prefer_ema and "ema_model" in checkpoint:
+            loaded_state_dict = extract_ema_model_state_dict(
+                checkpoint["ema_model"]
+            )
+        else:
+            loaded_state_dict = checkpoint["model"]
+        load_state_dict(self.model, loaded_state_dict, except_keys)
 
 
 def check_key(key, except_keys):
@@ -134,6 +157,16 @@ def strip_prefix_if_present(state_dict, prefix):
     for key, value in state_dict.items():
         stripped_state_dict[key.replace(prefix, "")] = value
     return stripped_state_dict
+
+
+def extract_ema_model_state_dict(state_dict):
+    module_prefix = "module."
+    module_state = OrderedDict(
+        (key[len(module_prefix):], value)
+        for key, value in state_dict.items()
+        if key.startswith(module_prefix)
+    )
+    return module_state or state_dict
 
 
 def load_state_dict(model, loaded_state_dict, except_keys=None):
