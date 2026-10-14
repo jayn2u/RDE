@@ -7,7 +7,7 @@ import time
 
 
 from datasets import build_dataloader
-from processor.processor import do_train, do_inference
+from processor.processor import do_measure_vram, do_train, do_inference
 from utils.checkpoint import Checkpointer
 from utils.iotools import save_train_configs
 from utils.logger import setup_logger
@@ -111,6 +111,20 @@ if __name__ == '__main__':
 
 
     wandb_session = start_train_run(args) if is_master else WandbSession(None)
+    if args.measure_vram_steps > 0:
+        try:
+            do_measure_vram(
+                args,
+                model,
+                train_loader,
+                optimizer,
+                wandb_session=wandb_session,
+                scaler=scaler,
+                ema_model=ema_model,
+            )
+        finally:
+            wandb_session.finish()
+        raise SystemExit(0)
     try:
         best_top1, best_epoch = do_train(
             start_epoch,

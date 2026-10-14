@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import torch
@@ -378,6 +379,76 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
     tb_writer.close()
     return best_top1, best_epoch
                     
+def do_measure_vram(args, model, train_loader, optimizer, wandb_session=None,
+                    scaler=None, ema_model=None):
+    logger = logging.getLogger("RDE.train")
+    device = torch.device("cuda")
+    steps = int(args.measure_vram_steps)
+    session = wandb_session or WandbSession(None)
+    amp_enabled = getattr(args, "amp", False)
+    amp_dtype = getattr(args, "amp_dtype", "fp16")
+    scaler = scaler or build_grad_scaler(amp_enabled, amp_dtype)
+    model.epoch = 1
+    pred_A, pred_B = get_loss(
+        model,
+        train_loader,
+        amp_enabled=amp_enabled,
+        amp_dtype=amp_dtype,
+    )
+    consensus_division = pred_A + pred_B
+    consensus_division[consensus_division == 1] += torch.randint(
+        0, 2, size=(((consensus_division == 1) + 0).sum(),)
+    )
+    label_hat = consensus_division.clone()
+    label_hat[consensus_division > 1] = 1
+    label_hat[consensus_division <= 1] = 0
+    model.train()
+    torch.cuda.synchronize(device)
+    torch.cuda.reset_peak_memory_stats(device)
+    completed = 0
+    while completed < steps:
+        for batch in train_loader:
+            batch = {k: v.to(device) for k, v in batch.items()}
+            batch['label_hat'] = label_hat[batch['index'].cpu()]
+            with autocast_context(amp_enabled, amp_dtype):
+                ret = model(batch)
+                total_loss = sum([v for k, v in ret.items() if "loss" in k])
+            optimizer.zero_grad()
+            step_succeeded = optimizer_step(total_loss, optimizer, scaler)
+            if step_succeeded and ema_model is not None:
+                ema_model.update_parameters(unwrap_model(model))
+            completed += 1
+            if completed % int(args.log_period) == 0:
+                logger.info(f"vram measure step {completed}/{steps}, loss: {total_loss.item():.4f}")
+            if completed >= steps:
+                break
+    torch.cuda.synchronize(device)
+    gib = 1024.0 ** 3
+    report = {
+        "config_name": args.name,
+        "steps": completed,
+        "max_memory_allocated_gib": torch.cuda.max_memory_allocated(device) / gib,
+        "max_memory_reserved_gib": torch.cuda.max_memory_reserved(device) / gib,
+        "amp": bool(amp_enabled),
+        "amp_dtype": amp_dtype,
+        "ema": ema_model is not None,
+        "gradient_checkpointing": bool(getattr(args, "gradient_checkpointing", False)),
+        "batch_size": int(args.batch_size),
+    }
+    path = os.path.join(args.output_dir, "vram_measure.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2)
+    logger.info(f"vram measure: {json.dumps(report)} -> {path}")
+    metrics = {
+        f"vram_measure/{key}": report[key]
+        for key in ("max_memory_allocated_gib", "max_memory_reserved_gib")
+    }
+    session.log(metrics)
+    session.set_summary({**metrics, "vram_measure/steps": completed, "vram_measure/config_name": args.name})
+    session.save(path, base_path=args.output_dir)
+    return report
+
+
 def do_inference(model, test_img_loader, test_txt_loader):
 
     logger = logging.getLogger("RDE.test")
