@@ -11,9 +11,11 @@ import processor.processor as processor
 
 class StubPoller:
     created = []
+    stopped = []
 
     def __init__(self, log_dir, name="system_memory", **kwargs):
         StubPoller.created.append((str(log_dir), name))
+        self.name = name
         self.gib = 5.0 if name == "gmm_system_memory" else 6.0
 
     def start(self):
@@ -23,7 +25,14 @@ class StubPoller:
         return {"system_process_peak_gib": self.gib, "system_gpu_peak_gib": 8.0, "system_poll_samples": 3}
 
     def stop(self):
+        StubPoller.stopped.append(self.name)
         return self.peaks()
+
+    def __enter__(self):
+        return self.start()
+
+    def __exit__(self, *exc_info):
+        self.stop()
 
 
 class TinyModel(torch.nn.Module):
@@ -68,6 +77,7 @@ class MeasureVramTest(unittest.TestCase):
                 patch.object(torch.cuda, "synchronize", lambda device=None: calls.append("sync")), \
                 patch.object(torch.cuda, "empty_cache", lambda: calls.append("empty")), \
                 patch.object(torch.cuda, "reset_peak_memory_stats", lambda device=None: calls.append("reset")), \
+                patch.object(torch.cuda, "memory_allocated", lambda device=None: 512 * 1024 ** 2), \
                 patch.object(torch.cuda, "max_memory_allocated", lambda device=None: 1024 ** 3), \
                 patch.object(torch.cuda, "max_memory_reserved", lambda device=None: 2 * 1024 ** 3):
             args = SimpleNamespace(
@@ -90,11 +100,57 @@ class MeasureVramTest(unittest.TestCase):
         self.assertEqual(report["steps"], 150)
         self.assertEqual(sorted(saved["checkpoints"]), ["100", "150"])
         self.assertEqual(saved["gmm_labeling"]["max_memory_allocated_gib"], 1.0)
+        self.assertEqual(saved["gmm_labeling"]["baseline_memory_allocated_gib"], 0.5)
+        self.assertEqual(saved["baseline_memory_allocated_gib"], 0.5)
+        self.assertEqual(session.summary["vram_measure/gmm_labeling/baseline_memory_allocated_gib"], 0.5)
         self.assertEqual(saved["gmm_labeling"]["system_process_peak_gib"], 5.0)
         self.assertEqual(saved["system_gpu_peak_gib"], 8.0)
         self.assertEqual(saved["max_memory_allocated_gib"], 1.0)
         self.assertEqual(saved["max_memory_reserved_gib"], 2.0)
         self.assertEqual(session.summary["vram_measure/steps"], 150)
+
+
+    def run_failing(self, get_loss, model):
+        cpu = torch.device("cpu")
+        StubPoller.created.clear()
+        StubPoller.stopped.clear()
+        loader = [{"images": torch.ones(2, 2), "index": torch.tensor([0, 1])}]
+        with tempfile.TemporaryDirectory() as out, \
+                patch.object(processor, "get_loss", get_loss), \
+                patch.object(processor.torch, "device", lambda name: cpu), \
+                patch.object(processor, "SystemMemoryPoller", StubPoller), \
+                patch.object(torch.cuda, "synchronize", lambda device=None: None), \
+                patch.object(torch.cuda, "empty_cache", lambda: None), \
+                patch.object(torch.cuda, "reset_peak_memory_stats", lambda device=None: None), \
+                patch.object(torch.cuda, "memory_allocated", lambda device=None: 0), \
+                patch.object(torch.cuda, "max_memory_allocated", lambda device=None: 0), \
+                patch.object(torch.cuda, "max_memory_reserved", lambda device=None: 0):
+            args = SimpleNamespace(
+                measure_vram_steps=5, amp=False, amp_dtype="fp16",
+                log_period=100, name="RDE", batch_size=2,
+                gradient_checkpointing=False, output_dir=out,
+            )
+            with self.assertRaises(RuntimeError):
+                processor.do_measure_vram(
+                    args, model, loader, torch.optim.SGD(model.parameters(), lr=0.1),
+                    wandb_session=RecordingSession(),
+                    scaler=torch.amp.GradScaler("cpu", enabled=False),
+                )
+
+    def test_exception_in_gmm_pass_stops_poller(self):
+        def failing_get_loss(*args, **kwargs):
+            raise RuntimeError("oom")
+
+        self.run_failing(failing_get_loss, TinyModel())
+        self.assertEqual(StubPoller.stopped, ["gmm_system_memory"])
+
+    def test_exception_in_training_stops_poller(self):
+        class FailingModel(TinyModel):
+            def forward(self, batch):
+                raise RuntimeError("oom")
+
+        self.run_failing(lambda *a, **k: (torch.ones(2), torch.ones(2)), FailingModel())
+        self.assertEqual(StubPoller.stopped, ["gmm_system_memory", "gmm_system_memory", "system_memory"])
 
 
 if __name__ == "__main__":

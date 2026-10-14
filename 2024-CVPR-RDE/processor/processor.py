@@ -393,19 +393,21 @@ def do_measure_vram(args, model, train_loader, optimizer, wandb_session=None,
     gib = 1024.0 ** 3
     torch.cuda.synchronize(device)
     torch.cuda.reset_peak_memory_stats(device)
-    gmm_poller = SystemMemoryPoller(args.output_dir, name="gmm_system_memory").start()
-    pred_A, pred_B = get_loss(
-        model,
-        train_loader,
-        amp_enabled=amp_enabled,
-        amp_dtype=amp_dtype,
-    )
-    torch.cuda.synchronize(device)
-    gmm_labeling = {
-        "max_memory_allocated_gib": torch.cuda.max_memory_allocated(device) / gib,
-        "max_memory_reserved_gib": torch.cuda.max_memory_reserved(device) / gib,
-        **gmm_poller.stop(),
-    }
+    gmm_baseline_gib = torch.cuda.memory_allocated(device) / gib
+    with SystemMemoryPoller(args.output_dir, name="gmm_system_memory") as gmm_poller:
+        pred_A, pred_B = get_loss(
+            model,
+            train_loader,
+            amp_enabled=amp_enabled,
+            amp_dtype=amp_dtype,
+        )
+        torch.cuda.synchronize(device)
+        gmm_labeling = {
+            "baseline_memory_allocated_gib": gmm_baseline_gib,
+            "max_memory_allocated_gib": torch.cuda.max_memory_allocated(device) / gib,
+            "max_memory_reserved_gib": torch.cuda.max_memory_reserved(device) / gib,
+            **gmm_poller.stop(),
+        }
     consensus_division = pred_A + pred_B
     consensus_division[consensus_division == 1] += torch.randint(
         0, 2, size=(((consensus_division == 1) + 0).sum(),)
@@ -419,36 +421,38 @@ def do_measure_vram(args, model, train_loader, optimizer, wandb_session=None,
     torch.cuda.synchronize(device)
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats(device)
-    poller = SystemMemoryPoller(args.output_dir).start()
-    completed = 0
-    while completed < steps:
-        for batch in train_loader:
-            batch = {k: v.to(device) for k, v in batch.items()}
-            batch['label_hat'] = label_hat[batch['index'].cpu()]
-            with autocast_context(amp_enabled, amp_dtype):
-                ret = model(batch)
-                total_loss = sum([v for k, v in ret.items() if "loss" in k])
-            optimizer.zero_grad()
-            step_succeeded = optimizer_step(total_loss, optimizer, scaler)
-            if step_succeeded and ema_model is not None:
-                ema_model.update_parameters(unwrap_model(model))
-            completed += 1
-            if completed in checkpoint_steps:
-                torch.cuda.synchronize(device)
-                checkpoint = {
-                    "max_memory_allocated_gib": torch.cuda.max_memory_allocated(device) / gib,
-                    "max_memory_reserved_gib": torch.cuda.max_memory_reserved(device) / gib,
-                    **(poller.stop() if completed == steps else poller.peaks()),
-                }
-                checkpoints[str(completed)] = checkpoint
-                session.log({
-                    "vram_measure/step": completed,
-                    **{f"vram_measure/{k}": v for k, v in checkpoint.items() if v is not None},
-                })
-            if completed % int(args.log_period) == 0:
-                logger.info(f"vram measure step {completed}/{steps}, loss: {total_loss.item():.4f}")
-            if completed >= steps:
-                break
+    training_baseline_gib = torch.cuda.memory_allocated(device) / gib
+    with SystemMemoryPoller(args.output_dir) as poller:
+        completed = 0
+        while completed < steps:
+            for batch in train_loader:
+                batch = {k: v.to(device) for k, v in batch.items()}
+                batch['label_hat'] = label_hat[batch['index'].cpu()]
+                with autocast_context(amp_enabled, amp_dtype):
+                    ret = model(batch)
+                    total_loss = sum([v for k, v in ret.items() if "loss" in k])
+                optimizer.zero_grad()
+                step_succeeded = optimizer_step(total_loss, optimizer, scaler)
+                if step_succeeded and ema_model is not None:
+                    ema_model.update_parameters(unwrap_model(model))
+                completed += 1
+                if completed in checkpoint_steps:
+                    torch.cuda.synchronize(device)
+                    checkpoint = {
+                        "baseline_memory_allocated_gib": training_baseline_gib,
+                        "max_memory_allocated_gib": torch.cuda.max_memory_allocated(device) / gib,
+                        "max_memory_reserved_gib": torch.cuda.max_memory_reserved(device) / gib,
+                        **(poller.stop() if completed == steps else poller.peaks()),
+                    }
+                    checkpoints[str(completed)] = checkpoint
+                    session.log({
+                        "vram_measure/step": completed,
+                        **{f"vram_measure/{k}": v for k, v in checkpoint.items() if v is not None},
+                    })
+                if completed % int(args.log_period) == 0:
+                    logger.info(f"vram measure step {completed}/{steps}, loss: {total_loss.item():.4f}")
+                if completed >= steps:
+                    break
     report = {
         "config_name": args.name,
         "steps": completed,
