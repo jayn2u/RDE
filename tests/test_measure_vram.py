@@ -7,6 +7,7 @@ from unittest.mock import patch
 import torch
 
 import processor.processor as processor
+from utils.system_memory import SystemMemoryPoller
 
 
 class TinyModel(torch.nn.Module):
@@ -43,15 +44,21 @@ class MeasureVramTest(unittest.TestCase):
         optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
         calls = []
         cpu = torch.device("cpu")
+
+        def fake_query(arguments):
+            if arguments[0].startswith("--query-compute-apps"):
+                return [["42", "5120"]]
+            return [["8192"]]
         with tempfile.TemporaryDirectory() as out, \
                 patch.object(processor, "get_loss", lambda *a, **k: (torch.ones(2), torch.ones(2))), \
                 patch.object(processor.torch, "device", lambda name: cpu), \
+                patch.object(processor, "SystemMemoryPoller", lambda: SystemMemoryPoller(pid=42, gpu="0", interval_seconds=60, query=fake_query)), \
                 patch.object(torch.cuda, "synchronize", lambda device=None: None), \
                 patch.object(torch.cuda, "reset_peak_memory_stats", lambda device=None: calls.append("reset")), \
                 patch.object(torch.cuda, "max_memory_allocated", lambda device=None: 1024 ** 3), \
                 patch.object(torch.cuda, "max_memory_reserved", lambda device=None: 2 * 1024 ** 3):
             args = SimpleNamespace(
-                measure_vram_steps=5, amp=False, amp_dtype="fp16",
+                measure_vram_steps=150, amp=False, amp_dtype="fp16",
                 log_period=100, name="RDE", batch_size=2,
                 gradient_checkpointing=False, output_dir=out,
             )
@@ -63,11 +70,15 @@ class MeasureVramTest(unittest.TestCase):
             )
             with open(f"{out}/vram_measure.json") as f:
                 saved = json.load(f)
-        self.assertEqual(calls, ["reset"])
-        self.assertEqual(report["steps"], 5)
+        self.assertEqual(calls, ["reset", "reset"])
+        self.assertEqual(report["steps"], 150)
+        self.assertEqual(sorted(saved["checkpoints"]), ["100", "150"])
+        self.assertEqual(saved["gmm_labeling"]["max_memory_allocated_gib"], 1.0)
+        self.assertEqual(saved["gmm_labeling"]["system_process_peak_gib"], 5.0)
+        self.assertEqual(saved["system_gpu_peak_gib"], 8.0)
         self.assertEqual(saved["max_memory_allocated_gib"], 1.0)
         self.assertEqual(saved["max_memory_reserved_gib"], 2.0)
-        self.assertEqual(session.summary["vram_measure/steps"], 5)
+        self.assertEqual(session.summary["vram_measure/steps"], 150)
 
 
 if __name__ == "__main__":
