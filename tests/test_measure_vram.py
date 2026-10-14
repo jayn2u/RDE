@@ -53,7 +53,8 @@ class MeasureVramTest(unittest.TestCase):
                 patch.object(processor, "get_loss", lambda *a, **k: (torch.ones(2), torch.ones(2))), \
                 patch.object(processor.torch, "device", lambda name: cpu), \
                 patch.object(processor, "SystemMemoryPoller", lambda: SystemMemoryPoller(pid=42, gpu="0", interval_seconds=60, query=fake_query)), \
-                patch.object(torch.cuda, "synchronize", lambda device=None: None), \
+                patch.object(torch.cuda, "synchronize", lambda device=None: calls.append("sync")), \
+                patch.object(torch.cuda, "empty_cache", lambda: calls.append("empty")), \
                 patch.object(torch.cuda, "reset_peak_memory_stats", lambda device=None: calls.append("reset")), \
                 patch.object(torch.cuda, "max_memory_allocated", lambda device=None: 1024 ** 3), \
                 patch.object(torch.cuda, "max_memory_reserved", lambda device=None: 2 * 1024 ** 3):
@@ -70,7 +71,8 @@ class MeasureVramTest(unittest.TestCase):
             )
             with open(f"{out}/vram_measure.json") as f:
                 saved = json.load(f)
-        self.assertEqual(calls, ["reset", "reset"])
+        self.assertEqual(calls[:5], ["sync", "reset", "sync", "sync", "empty"])
+        self.assertEqual(calls[5], "reset")
         self.assertEqual(report["steps"], 150)
         self.assertEqual(sorted(saved["checkpoints"]), ["100", "150"])
         self.assertEqual(saved["gmm_labeling"]["max_memory_allocated_gib"], 1.0)

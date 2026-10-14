@@ -417,6 +417,7 @@ def do_measure_vram(args, model, train_loader, optimizer, wandb_session=None,
     checkpoint_steps = sorted({step for step in (100,) if step < steps} | {steps})
     checkpoints = {}
     torch.cuda.synchronize(device)
+    torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats(device)
     poller = SystemMemoryPoller().start()
     completed = 0
