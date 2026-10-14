@@ -90,6 +90,8 @@ def get_args():
                         help="EMA decay, strictly between 0 and 1")
     parser.add_argument("--gradient_checkpointing", action="store_true",
                         help="checkpoint CLIP Transformer blocks during training")
+    parser.add_argument("--measure_vram_steps", type=int, default=0,
+                        help="run only this many training steps without evaluation and save peak CUDA memory to vram_measure.json")
     
     ######################## scheduler ########################
     parser.add_argument("--num_epoch", type=int, default=60)
