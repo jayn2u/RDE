@@ -7,7 +7,23 @@ from unittest.mock import patch
 import torch
 
 import processor.processor as processor
-from utils.system_memory import SystemMemoryPoller
+
+
+class StubPoller:
+    created = []
+
+    def __init__(self, log_dir, name="system_memory", **kwargs):
+        StubPoller.created.append((str(log_dir), name))
+        self.gib = 5.0 if name == "gmm_system_memory" else 6.0
+
+    def start(self):
+        return self
+
+    def peaks(self):
+        return {"system_process_peak_gib": self.gib, "system_gpu_peak_gib": 8.0, "system_poll_samples": 3}
+
+    def stop(self):
+        return self.peaks()
 
 
 class TinyModel(torch.nn.Module):
@@ -44,15 +60,11 @@ class MeasureVramTest(unittest.TestCase):
         optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
         calls = []
         cpu = torch.device("cpu")
-
-        def fake_query(arguments):
-            if arguments[0].startswith("--query-compute-apps"):
-                return [["42", "5120"]]
-            return [["8192"]]
+        StubPoller.created.clear()
         with tempfile.TemporaryDirectory() as out, \
                 patch.object(processor, "get_loss", lambda *a, **k: (torch.ones(2), torch.ones(2))), \
                 patch.object(processor.torch, "device", lambda name: cpu), \
-                patch.object(processor, "SystemMemoryPoller", lambda: SystemMemoryPoller(pid=42, gpu="0", interval_seconds=60, query=fake_query)), \
+                patch.object(processor, "SystemMemoryPoller", StubPoller), \
                 patch.object(torch.cuda, "synchronize", lambda device=None: calls.append("sync")), \
                 patch.object(torch.cuda, "empty_cache", lambda: calls.append("empty")), \
                 patch.object(torch.cuda, "reset_peak_memory_stats", lambda device=None: calls.append("reset")), \
@@ -73,6 +85,8 @@ class MeasureVramTest(unittest.TestCase):
                 saved = json.load(f)
         self.assertEqual(calls[:5], ["sync", "reset", "sync", "sync", "empty"])
         self.assertEqual(calls[5], "reset")
+        self.assertEqual(StubPoller.created, [(out, "gmm_system_memory"), (out, "system_memory")])
+        self.assertEqual(saved["system_process_peak_gib"], 6.0)
         self.assertEqual(report["steps"], 150)
         self.assertEqual(sorted(saved["checkpoints"]), ["100", "150"])
         self.assertEqual(saved["gmm_labeling"]["max_memory_allocated_gib"], 1.0)

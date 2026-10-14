@@ -393,7 +393,7 @@ def do_measure_vram(args, model, train_loader, optimizer, wandb_session=None,
     gib = 1024.0 ** 3
     torch.cuda.synchronize(device)
     torch.cuda.reset_peak_memory_stats(device)
-    gmm_poller = SystemMemoryPoller().start()
+    gmm_poller = SystemMemoryPoller(args.output_dir, name="gmm_system_memory").start()
     pred_A, pred_B = get_loss(
         model,
         train_loader,
@@ -419,7 +419,7 @@ def do_measure_vram(args, model, train_loader, optimizer, wandb_session=None,
     torch.cuda.synchronize(device)
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats(device)
-    poller = SystemMemoryPoller().start()
+    poller = SystemMemoryPoller(args.output_dir).start()
     completed = 0
     while completed < steps:
         for batch in train_loader:
